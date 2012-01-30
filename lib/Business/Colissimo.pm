@@ -12,13 +12,13 @@ Business::Colissimo - Shipping labels for ColiPoste
 
 =head1 VERSION
 
-Version 0.0001
+Version 0.0002
 
 =cut
 
-our $VERSION = '0.0001';
+our $VERSION = '0.0002';
 
-my %product_codes = (access => '8L', expert => '8V');
+my %product_codes = (access_f => '8L', expert_f => '8V', expert_om => '7A');
 my %attributes = (parcel_number => 'parcel number', 
 		  postal_code => 'postal code', 
 		  customer_number => 'customer number',
@@ -30,11 +30,17 @@ my %attributes = (parcel_number => 'parcel number',
 		  level => 'insurance/recommendation level',
     );
 
+my %logo_files = (access_f => 'AccessF',
+		  expert_f => 'ExpertF',
+		  expert_om => 'ExpertOM',
+		  expert_i => 'ExpertInter',
+    );
+
 =head1 SYNOPSIS 
 
     use Business::Colissimo;
 
-    $colissimo = Business::Colissimo->new(mode => 'access');
+    $colissimo = Business::Colissimo->new(mode => 'access_f');
 
     # customer number
     $colissimo->customer_number('900001');
@@ -60,17 +66,37 @@ my %attributes = (parcel_number => 'parcel number',
     # recommendation level (expert mode only)
     $colissimo->level('21');
 
+=head1 DESCRIPTION
+
+Business::Colissimo supports the following ColiPoste services:
+
+=over 4
+
+=item Access France
+    
+    $colissimo = Business::Colissimo->new(mode => 'access_f');
+
+=item Expert France
+
+    $colissimo = Business::Colissimo->new(mode => 'expert_f');
+
+=item Expert Outre Mer
+
+    $colissimo = Business::Colissimo->new(mode => 'expert_om');
+
+=back
+
 =head1 METHODS
 
 =head2 new
 
-    $colissimo = Business::Colissimo->new(mode => 'access',
+    $colissimo = Business::Colissimo->new(mode => 'access_f',
          customer_number => '900001',
          parcel_number => '2052475203',
          postal_code => '72240',
          weight => 250);
 
-    $colissimo = Business::Colissimo->new(mode => 'expert',
+    $colissimo = Business::Colissimo->new(mode => 'expert_f',
          customer_number => '900001',
          parcel_number => '2052475203',
          postal_code => '72240',
@@ -87,7 +113,7 @@ sub new {
     %args = @_;
 
     unless (defined $args{mode} && $product_codes{$args{mode}}) {
-	die 'Please select valid mode (either access or expert) for ', __PACKAGE__;
+	die 'Please select valid mode for ', __PACKAGE__;
     }
 
     $self = {mode => delete $args{mode},
@@ -118,14 +144,22 @@ Produces the tracking barcode:
 
     $colissimo->barcode('tracking');
 
+Same with proper spacing for the shipping label:
+
+    $colissimo->barcode('tracking', spacing => 1);
+
 Produces the sorting barcode:
 
     $colissimo->barcode('sorting');
 
+Same with proper spacing for the shipping label:
+
+    $colissimo->barcode('sorting', spacing => 1);
+
 =cut
 
 sub barcode {
-    my ($self, $type) = @_;
+    my ($self, $type, %args) = @_;
     my ($barcode, $parcel_number, $control);
 
     $barcode = $product_codes{$self->{mode}};
@@ -167,11 +201,26 @@ sub barcode {
 	$control .= substr($self->parcel_number, 9, 1);
 	
 	$barcode .= $control . $self->control_key($control);
+
+	if ($args{spacing}) {
+	    return join(' ', substr($barcode, 0, 3),
+			substr($barcode, 3, 5),
+			substr($barcode, 8, 6),
+			substr($barcode, 14, 4),
+			substr($barcode, 18, 6));	   
+	}
     }
     else {
 	$parcel_number = $self->parcel_number;
 	$barcode .= $parcel_number;
 	$barcode .= $self->control_key($parcel_number);
+
+	if ($args{spacing}) {
+	    return join(' ', substr($barcode, 0, 2),
+			substr($barcode, 2, 5),
+			substr($barcode, 7, 5),
+			substr($barcode, 12, 1));
+	}
     }
 
     return $barcode;
@@ -187,14 +236,23 @@ Produces PNG image for sorting barcode:
 
     $colissimo->barcode_image('sorting');
 
+Produces PNG image for arbitrary barcode:
+
+    $colissimo->barcode_image('8L20524752032');
+
 =cut
 
 sub barcode_image {
     my ($self, $type, %args) = @_;
     my ($barcode, $image, $code128, $png);
 
-    $barcode = $self->barcode($type);
-    
+    if ($type eq 'tracking' || $type eq 'sorting') {
+	$barcode = $self->barcode($type);
+    }
+    else {
+	$barcode = $type;
+    }
+
     $code128 = Barcode::Code128->new;
     $code128->show_text(0);
 
@@ -466,6 +524,18 @@ sub control_key {
     return $mod ? 10 - $mod : 0;
 }
 
+=head2 logo
+
+Returns logo file name for selected service.
+
+=cut
+
+sub logo {
+    my $self = shift;
+
+    return $logo_files{$self->{mode}} . '.bmp';
+}
+
 =head1 AUTHOR
 
 Stefan Hornburg (Racke), C<< <racke at linuxia.de> >>
@@ -515,7 +585,7 @@ Thanks to Ton Verhagen for being a big supporter of my projects in all aspects.
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright 2011 Stefan Hornburg (Racke).
+Copyright 2011-2012 Stefan Hornburg (Racke).
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published
