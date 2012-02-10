@@ -12,13 +12,33 @@ Business::Colissimo - Shipping labels for ColiPoste
 
 =head1 VERSION
 
-Version 0.0002
+Version 0.0100
 
 =cut
 
-our $VERSION = '0.0002';
+our $VERSION = '0.0100';
 
-my %product_codes = (access_f => '8L', expert_f => '8V', expert_om => '7A');
+my %product_codes = (access_f => '8L', 
+		     expert_f => '8V', 
+		     expert_om => '7A', 
+		     expert_i => 'CY', 
+		     expert_i_kpg => 'EY'
+    );
+
+my %test_account = (access_f => '964744', 
+		    expert_f => '964744',
+		    expert_om => '964744', 
+		    expert_i => '964744', 
+		    expert_kpg => '900000',  
+    );
+
+my %test_ranges = (access_f => [qw/4139207826 4139212825/],
+		   expert_f => [qw/5649204247 5649209246/],
+		   expert_om => [qw/5389439016 5389444015/],
+		   expert_i => [qw/00005801 00055800/],
+		   expert_i_kpg => [qw/00000001 00051000/],
+		    );
+		   
 my %attributes = (parcel_number => 'parcel number', 
 		  postal_code => 'postal code', 
 		  customer_number => 'customer number',
@@ -28,6 +48,13 @@ my %attributes = (parcel_number => 'parcel number',
 		  # expert mode
 		  cod => 'cash on delivery',
 		  level => 'insurance/recommendation level',
+
+		  # barcode image
+		  scale => 'barcode image scale factor',
+		  height => 'barcode image height',
+
+		  # testing
+		  test => 'testing',
     );
 
 my %logo_files = (access_f => 'AccessF',
@@ -36,16 +63,40 @@ my %logo_files = (access_f => 'AccessF',
 		  expert_i => 'ExpertInter',
     );
 
+my %countries = (AU => {kpg => 1},
+		 BR => {kpg => 1},
+		 CN => {kpg => 1},
+		 HK => {kpg => 1},
+		 IL => {kpg => 1},
+		 JP => {kpg => 1},
+		 KR => {kpg => 1},
+		 MA => {kpg => 1},
+		 RU => {kpg => 1},
+		 SG => {kpg => 1},
+		 VN => {kpg => 1},
+		 US => {kpg => 1},
+    );
+
 =head1 SYNOPSIS 
 
     use Business::Colissimo;
 
-    $colissimo = Business::Colissimo->new(mode => 'access_f');
+    $colissimo = Business::Colissimo->new(mode => 'access_f',
+                               customer_number => '900001',
+                               parcel_number => '2052475203',
+                               postal_code => '72240',
+                               weight => 120);
+
+    # get logo file name
+    $colissimo->logo;
+
+    # produce barcode images
+    $colissimo->barcode('tracking', spacing => 1);
+    $colissimo->barcode('shipping', spacing => 1);
 
     # customer number
-    $colissimo->customer_number('900001');
-
-    # parcel number from your alloted range of numbers
+    $colissimo->customer_number('900001')
+    # parcel number from your alloted range numbers
     $colissimo->parcel_number('2052475203');
 
     # postal code for recipient
@@ -66,9 +117,16 @@ my %logo_files = (access_f => 'AccessF',
     # recommendation level (expert mode only)
     $colissimo->level('21');
 
+    # set scale in pixels for barcode image (default: 1)
+    $colissimo->scale(2);
+
+    # set height in pixels for barcode image (default: 77)
+    $colissimo->height(100);
+
 =head1 DESCRIPTION
 
-Business::Colissimo supports the following ColiPoste services:
+Business::Colissimo helps you to produce shipping labels
+for the following ColiPoste services:
 
 =over 4
 
@@ -83,6 +141,16 @@ Business::Colissimo supports the following ColiPoste services:
 =item Expert Outre Mer
 
     $colissimo = Business::Colissimo->new(mode => 'expert_om');
+
+=item Expert International
+
+    KPG countries:
+
+    $colissimo = Business::Colissimo->new(mode => 'expert_i_kpg');
+
+    Countries outside of KPG:
+
+    $colissimo = Business::Colissimo->new(mode => 'expert_i');
 
 =back
 
@@ -125,6 +193,13 @@ sub new {
 	     # expert 
 	     cod => '0',
 	     level => '00',
+
+	     # barcode image
+	     scale => 1,
+	     height => 77,
+
+	     # testing
+	     test => 0,
     };
 
     bless $self, $class;
@@ -240,11 +315,31 @@ Produces PNG image for arbitrary barcode:
 
     $colissimo->barcode_image('8L20524752032');
 
+The scale of the image can be changed for each
+barcode individually:
+
+    $colissimo->barcode_image('8L20524752032', scale => 2);
+
+The default scale is set to 1, because that produces
+images with the right number of pixels to include them
+into PDF with L<PDF::API2>, which uses 72dpi resolution
+for images unless you specify width and height explicitly
+(see L<PDF::API2::Content>).
+
+The formula for calculating width in mm for a 72dpi
+resolution is as follows:
+
+    (1px * 25.4) / 72dpi
+
+This fits into Colissimo's requirement for the basic
+module (narrowest element of the bar code) of 
+0.33 to 0.375 mm.
+
 =cut
 
 sub barcode_image {
     my ($self, $type, %args) = @_;
-    my ($barcode, $image, $code128, $png);
+    my ($barcode, $image, $code128, $png, $scale, $height);
 
     if ($type eq 'tracking' || $type eq 'sorting') {
 	$barcode = $self->barcode($type);
@@ -254,9 +349,117 @@ sub barcode_image {
     }
 
     $code128 = Barcode::Code128->new;
+    $code128->border(0);
+
+    # scale
+    if ($scale = $self->{scale} || $args{scale}) {
+	$code128->scale($scale);
+    }
+
+    # height 
+    if ($height = $self->{height} || $args{height}) {
+	$code128->height($height);
+    }
+
     $code128->show_text(0);
 
     $png = $code128->png($barcode);
+}
+
+
+=head2 logo
+
+Returns logo file name for selected service.
+
+    $colissimo->logo;
+
+=cut
+
+sub logo {
+    my $self = shift;
+
+    return $logo_files{$self->{mode}} . '.bmp';
+}
+
+=head2 test
+
+Toggles testing.
+
+    $colissimo->test(1);
+
+=cut
+
+sub test {
+    my $self = shift;
+
+    if (@_ > 0 && defined $_[0]) {
+	$self->{test} = $_[0];
+	
+	if ($self->{test} && ! $self->{customer_number}) {
+	    # use predefined customer number for tests
+	    $self->{customer_number} = $test_account{$self->{mode}};
+	}
+    }
+
+    return $self->{test};
+}
+
+=head2 scale
+
+Get current scale for barcode image:
+
+    $colissimo->scale;
+
+Set current scale for barcode image:
+
+    $colissimo->scale(3);
+
+=cut
+
+sub scale {
+    my $self = shift;
+    my $scale;
+
+    if (@_ > 0 && defined $_[0]) {
+	$scale = $_[0];
+
+	if ($scale !~ /^\d+$/) {
+	    die 'Please provide valid scale factor';
+	}
+
+	$self->{scale} = $scale;
+    }
+
+    return $self->{scale};
+}
+
+=head2 height
+
+Get current height for barcode image:
+
+    $colissimo->height;
+
+Set current height for barcode image:
+
+    $colissimo->height(100);
+
+=cut
+
+sub height {
+    my $self = shift;
+    my $height;
+
+    if (@_ > 0 && defined $_[0]) {
+	$height = $_[0];
+
+	if ($height !~ /^\d+$/) {
+	    die 'Please provide valid height';
+	}
+
+	$self->{height} = $height;
+    }
+
+    return $self->{height};
 }
 
 =head2 customer_number
@@ -522,18 +725,6 @@ sub control_key {
     $mod = $key % 10;
 
     return $mod ? 10 - $mod : 0;
-}
-
-=head2 logo
-
-Returns logo file name for selected service.
-
-=cut
-
-sub logo {
-    my $self = shift;
-
-    return $logo_files{$self->{mode}} . '.bmp';
 }
 
 =head1 AUTHOR
