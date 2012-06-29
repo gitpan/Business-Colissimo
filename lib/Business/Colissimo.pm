@@ -12,11 +12,11 @@ Business::Colissimo - Shipping labels for ColiPoste
 
 =head1 VERSION
 
-Version 0.1000
+Version 0.2000
 
 =cut
 
-our $VERSION = '0.1000';
+our $VERSION = '0.2000';
 
 my %product_codes = (access_f => '8L', 
 		     expert_f => '8V', 
@@ -45,10 +45,16 @@ my %attributes = (parcel_number => 'parcel number',
 		  weight => 'parcel weight',
 		  not_mechanisable => 'not mechanisable',
 
-		  # expert mode
+		  # expert modes
 		  cod => 'cash on delivery',
 		  level => 'insurance/recommendation level',
 
+          # expert_om/expert_i modes
+          ack_receipt => 'acknowledgement of receipt',
+          
+          # expert_om mode
+          duty_free => 'customs duty free (FTD)',
+          
           # expert_i mode
           country_code => 'country code',
                   
@@ -68,18 +74,35 @@ my %logo_files = (access_f => 'AccessF',
 		  expert_i_kpg => 'ExpertInter',                  
     );
 
-my %countries = (AU => {kpg => 1},
-		 BR => {kpg => 1},
-		 CN => {kpg => 1},
-		 HK => {kpg => 1},
-		 IL => {kpg => 1},
-		 JP => {kpg => 1},
-		 KR => {kpg => 1},
-		 MA => {kpg => 1},
-		 RU => {kpg => 1},
-		 SG => {kpg => 1},
-		 VN => {kpg => 1},
-		 US => {kpg => 1},
+my %countries = (AT => {epg => 1},
+                 AU => {kpg => 1},
+                 BE => {epg => 1},
+                 BR => {kpg => 1},
+                 CH => {epg => 1},
+                 CN => {kpg => 1},
+                 DE => {epg => 1},
+                 DK => {epg => 1},
+                 ES => {epg => 1},
+                 FI => {epg => 1},
+                 FR => {epg => 1},
+                 GB => {epg => 1},
+                 GR => {epg => 1},
+                 HK => {kpg => 1},
+                 IE => {epg => 1},
+                 IL => {kpg => 1},
+                 IS => {epg => 1},
+                 IT => {epg => 1},
+                 JP => {kpg => 1},
+                 KR => {kpg => 1},
+                 LU => {epg => 1},
+                 MA => {kpg => 1},
+                 NO => {epg => 1},
+                 PT => {epg => 1},
+                 RU => {kpg => 1},
+                 SG => {kpg => 1},
+                 SE => {epg => 1},
+                 VN => {kpg => 1},
+                 US => {kpg => 1},
     );
 
 =head1 SYNOPSIS 
@@ -202,8 +225,10 @@ sub new {
 	     # expert 
 	     cod => '0',
 	     level => '00',
+         ack_receipt => '0',
+         duty_free => '0',
 
-	     # barcode image
+         # barcode image
 	     scale => 1,
 	     height => 77,
              padding => 20,
@@ -313,9 +338,19 @@ sub barcode {
         # not mechanisable 
         $control .= $self->not_mechanisable;
 
-        # cash on delivery
-        $control .= $self->cod;
-    
+        if ($self->{mode} eq 'expert_om'
+            || $self->international) {
+            # combination of cash on delivery, customs duty free
+            # and acknowledgement of receipt options
+            $control .= $self->cod 
+                + 2 * $self->duty_free
+                + 4 * $self->ack_receipt;
+        }
+        else {
+            # cash on delivery
+            $control .= $self->cod;
+        }
+
         # control link digit (last digit of parcel number)
         if ($self->international) {
             $control .= substr($self->parcel_number, 7, 1);
@@ -698,8 +733,8 @@ sub postal_code {
         $string =~ s/\s+//g;
 
         if ($self->{international}) {
-            if ($string !~ /^[A-Z0-9]{1,5}$/) {
-                die 'Please provide valid postal code (1-5 alphanumerics) for barcode';
+            if ($string eq '0' || $string !~ /^[A-Z0-9]{1,10}$/) {
+                die 'Please provide valid postal code (1-10 alphanumerics) for barcode';
             }
         }
         else {
@@ -858,6 +893,82 @@ sub level {
     return $self->{level};
 }
 
+=head2 ack_receipt
+
+Get current value for acknowledgement of receipt (AR):
+
+    $colissimo->ack_receipt;
+
+Set current value for acknowledgement of receipt (AR):
+
+    $colissimo->ack_receipt(1);
+
+Returns 1 if acknowledgement of receipt is enabled, 0 otherwise.
+
+The ack_receipt option is only available in expert_om and expert_i modes,
+possible values are 0 (No) and 1 (Yes).
+
+=cut
+
+sub ack_receipt {
+    my $self = shift;
+    my $number;
+
+    if (@_ > 0 && defined $_[0]) {
+        $number = $_[0];
+        $number =~ s/\s+//g;
+
+        if ($number !~ /^[01]$/) {
+            die 'Please provide valid value for acknowledgement of receipt option (0 or 1)';
+        }
+
+        unless ($number == 0 || $self->international || $self->{mode} eq 'expert_om') {
+            die 'Acknowledgement of receipt option only available in expert_om and expert_i modes.';
+        }
+        
+        $self->{ack_receipt} = $number;
+    }
+
+    return $self->{ack_receipt};
+}
+
+=head2 duty_free
+
+Get current value for customs duty free (FTD):
+
+    $colissimo->duty_free;
+
+Set current value for customs duty free (FTD):
+
+    $colissimo->duty_free(1);
+
+The custom duty free option is only available in expert_om mode,
+possible values are 0 (No) and 1 (Yes).
+
+=cut
+
+sub duty_free {
+    my $self = shift;
+    my $number;
+
+    if (@_ > 0 && defined $_[0]) {
+        $number = $_[0];
+        $number =~ s/\s+//g;
+
+        if ($number !~ /^[01]$/) {
+            die 'Please provide valid value for customs duty free option (0 or 1)';
+        }
+
+        unless ($number == 0 || $self->{mode} eq 'expert_om') {
+            die 'Customs duty free option only available in expert_om mode.';
+        }
+        
+        $self->{duty_free} = $number;
+    }
+    
+    return $self->{duty_free};
+}
+
 =head2 international
 
 Returns 1 on international (expert_i or expert_i_kpg) shippings,
@@ -867,6 +978,31 @@ Returns 1 on international (expert_i or expert_i_kpg) shippings,
 
 sub international {
     return $_[0]->{international};
+}
+
+=head2 organisation
+
+Returns the acronym of the inter-postal organisation (KPG or EPG)
+corresponding to the destination country.
+
+=cut
+
+sub organisation {
+    my $self = shift;
+    
+    if (exists $countries{$self->{country_code}}) {
+        my $cref = $countries{$self->{country_code}};
+
+        if ($cref->{epg}) {
+            return 'EPG';
+        }
+
+        if ($cref->{kpg}) {
+            return 'KPG';
+        }
+    }
+
+    return '';
 }
 
 =head2 control_key
