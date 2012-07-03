@@ -12,11 +12,11 @@ Business::Colissimo - Shipping labels for ColiPoste
 
 =head1 VERSION
 
-Version 0.2000
+Version 0.2100
 
 =cut
 
-our $VERSION = '0.2000';
+our $VERSION = '0.2100';
 
 my %product_codes = (access_f => '8L', 
 		     expert_f => '8V', 
@@ -882,7 +882,7 @@ sub level {
 	    die 'Please provide valid value for insurance/recommendation level.';
 	}
 
-	if ($self->{mode} eq 'access' 
+	if ($self->{mode} eq 'access_f' 
 	    && $number ne '00') {
 	    die 'Insurance/recommendation level not available in access mode.';
 	}
@@ -1016,6 +1016,28 @@ sub control_key {
     my (@codes, $even, $odd, $key, $mod);
 
     @codes = split(//, $characters);
+
+    if ($self->international && @codes == 8) {
+        # special case for tracking control keys
+        # for international orders
+        my @coefficients = (8, 6, 4, 2, 3, 5, 9, 7);
+
+        while (@codes) {
+            $key += shift(@codes) * shift(@coefficients);
+        }
+
+        $mod = $key % 11;
+
+        if ($mod == 0) {
+            return 5;
+        }
+        elsif ($mod == 1) {
+            return 0;
+        }
+        else {
+            return 11 - $mod;
+        }
+    }
     
     if (@codes % 2) {
 	# pad characters for sorting control key
