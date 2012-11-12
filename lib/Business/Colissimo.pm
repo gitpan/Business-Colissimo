@@ -12,11 +12,11 @@ Business::Colissimo - Shipping labels for ColiPoste
 
 =head1 VERSION
 
-Version 0.2100
+Version 0.2200
 
 =cut
 
-our $VERSION = '0.2100';
+our $VERSION = '0.2200';
 
 my %product_codes = (access_f => '8L', 
 		     expert_f => '8V', 
@@ -145,7 +145,7 @@ my %countries = (AT => {epg => 1},
     # insurance level (expert mode only)
     $colissimo->level('01');
 
-    # recommendation level (expert mode only)
+    # recommendation level (expert_f and expert_om mode only)
     $colissimo->level('21');
 
     # set scale in pixels for barcode image (default: 1)
